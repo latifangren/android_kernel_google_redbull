@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - .github/workflows/build-redbull-nonksu.yml
+      - '.github/workflows/build-redbull-nonksu.yml'
 
 permissions:
   contents: read
@@ -13,7 +13,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-
     steps:
       - name: Checkout kernel tree
         uses: actions/checkout@v4
@@ -21,66 +20,24 @@ jobs:
           fetch-depth: 1
 
       - name: Install build dependencies
-        shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            clang \
-            flex \
-            gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi \
-            git \
-            libelf-dev \
-            libssl-dev \
-            lld \
-            llvm \
-            make \
-            python3 \
-            rsync \
-            unzip \
-            zip \
-            zstd
+          sudo apt-get install -y bc bison build-essential ccache clang flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev lld llvm make python3 rsync unzip zip zstd
 
       - name: Disable KSU references and config
         shell: bash
         run: |
-          DEFCONFIG="arch/arm64/configs/redbull_defconfig"
-          cp "$DEFCONFIG" "$DEFCONFIG.bak"
+          cp arch/arm64/configs/redbull_defconfig arch/arm64/configs/redbull_defconfig.bak
           cp drivers/Kconfig drivers/Kconfig.bak
           cp drivers/Makefile drivers/Makefile.bak
-          python3 - <<'PY'
-from pathlib import Path
-
-def patch_file(path_str, replacements):
-    path = Path(path_str)
-    text = path.read_text()
-    for old, new in replacements:
-        text = text.replace(old, new)
-    path.write_text(text)
-
-patch_file('arch/arm64/configs/redbull_defconfig', [
-    ('CONFIG_KSU=y', '# CONFIG_KSU is not set'),
-    ('CONFIG_KSU_SUSFS=y', '# CONFIG_KSU_SUSFS is not set'),
-    ('CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y', '# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set'),
-    ('CONFIG_KSU_WITH_KPROBES=y', '# CONFIG_KSU_WITH_KPROBES is not set'),
-])
-patch_file('drivers/Kconfig', [
-    ('source "drivers/kernelsu/Kconfig"\n', ''),
-])
-patch_file('drivers/Makefile', [
-    ('obj-$(CONFIG_KSU) += kernelsu/\n', ''),
-])
-PY
-          echo "Patched defconfig diff:"
-          diff -u "$DEFCONFIG.bak" "$DEFCONFIG" || true
-          echo "Patched drivers/Kconfig diff:"
-          diff -u drivers/Kconfig.bak drivers/Kconfig || true
-          echo "Patched drivers/Makefile diff:"
-          diff -u drivers/Makefile.bak drivers/Makefile || true
+          sed -i 's/^CONFIG_KSU=y$/# CONFIG_KSU is not set/' arch/arm64/configs/redbull_defconfig
+          sed -i 's/^CONFIG_KSU_SUSFS=y$/# CONFIG_KSU_SUSFS is not set/' arch/arm64/configs/redbull_defconfig
+          sed -i 's/^CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y$/# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set/' arch/arm64/configs/redbull_defconfig
+          sed -i 's/^CONFIG_KSU_WITH_KPROBES=y$/# CONFIG_KSU_WITH_KPROBES is not set/' arch/arm64/configs/redbull_defconfig
+          sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig
+          sed -i '/obj-\$(CONFIG_KSU) += kernelsu\//d' drivers/Makefile
+          echo 'Patched defconfig:'
+          diff -u arch/arm64/configs/redbull_defconfig.bak arch/arm64/configs/redbull_defconfig || true
 
       - name: Build redbull kernel artifact
         shell: bash
@@ -102,7 +59,7 @@ PY
           mkdir -p artifacts
           find out/arch/arm64/boot -maxdepth 2 -type f \( -name 'Image*' -o -name '*.dtb' -o -name '*.dtbo' \) -exec cp -v {} artifacts/ \;
           cp -v arch/arm64/configs/redbull_defconfig artifacts/redbull_defconfig.nonksu || true
-          find artifacts -maxdepth 1 -type f -printf '%f\n' | sort
+          ls -la artifacts
 
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v4
