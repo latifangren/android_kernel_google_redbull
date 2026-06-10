@@ -45,27 +45,42 @@ jobs:
             zip \
             zstd
 
-      - name: Disable KSU in defconfig
+      - name: Disable KSU references and config
         shell: bash
         run: |
           DEFCONFIG="arch/arm64/configs/redbull_defconfig"
           cp "$DEFCONFIG" "$DEFCONFIG.bak"
+          cp drivers/Kconfig drivers/Kconfig.bak
+          cp drivers/Makefile drivers/Makefile.bak
           python3 - <<'PY'
-          from pathlib import Path
-          path = Path('arch/arm64/configs/redbull_defconfig')
-          text = path.read_text()
-          replacements = [
-              ('CONFIG_KSU=y', '# CONFIG_KSU is not set'),
-              ('CONFIG_KSU_SUSFS=y', '# CONFIG_KSU_SUSFS is not set'),
-              ('CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y', '# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set'),
-              ('CONFIG_KSU_WITH_KPROBES=y', '# CONFIG_KSU_WITH_KPROBES is not set'),
-          ]
-          for old, new in replacements:
-              text = text.replace(old, new)
-          path.write_text(text)
-          PY
+from pathlib import Path
+
+def patch_file(path_str, replacements):
+    path = Path(path_str)
+    text = path.read_text()
+    for old, new in replacements:
+        text = text.replace(old, new)
+    path.write_text(text)
+
+patch_file('arch/arm64/configs/redbull_defconfig', [
+    ('CONFIG_KSU=y', '# CONFIG_KSU is not set'),
+    ('CONFIG_KSU_SUSFS=y', '# CONFIG_KSU_SUSFS is not set'),
+    ('CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y', '# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set'),
+    ('CONFIG_KSU_WITH_KPROBES=y', '# CONFIG_KSU_WITH_KPROBES is not set'),
+])
+patch_file('drivers/Kconfig', [
+    ('source "drivers/kernelsu/Kconfig"\n', ''),
+])
+patch_file('drivers/Makefile', [
+    ('obj-$(CONFIG_KSU) += kernelsu/\n', ''),
+])
+PY
           echo "Patched defconfig diff:"
           diff -u "$DEFCONFIG.bak" "$DEFCONFIG" || true
+          echo "Patched drivers/Kconfig diff:"
+          diff -u drivers/Kconfig.bak drivers/Kconfig || true
+          echo "Patched drivers/Makefile diff:"
+          diff -u drivers/Makefile.bak drivers/Makefile || true
 
       - name: Build redbull kernel artifact
         shell: bash
