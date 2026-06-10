@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/build-redbull-nonksu.yml'
+      - .github/workflows/build-redbull-nonksu.yml
 
 permissions:
   contents: read
@@ -21,12 +21,29 @@ jobs:
           fetch-depth: 1
 
       - name: Install build dependencies
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            bc bison build-essential ccache clang flex gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi git libelf-dev libssl-dev lld llvm make \
-            python3 rsync unzip zip zstd
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            clang \
+            flex \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            git \
+            libelf-dev \
+            libssl-dev \
+            lld \
+            llvm \
+            make \
+            python3 \
+            rsync \
+            unzip \
+            zip \
+            zstd
 
       - name: Disable KSU in defconfig
         shell: bash
@@ -34,18 +51,19 @@ jobs:
           DEFCONFIG="arch/arm64/configs/redbull_defconfig"
           cp "$DEFCONFIG" "$DEFCONFIG.bak"
           python3 - <<'PY'
-from pathlib import Path
-path = Path('arch/arm64/configs/redbull_defconfig')
-text = path.read_text()
-for old, new in [
-    ('CONFIG_KSU=y', '# CONFIG_KSU is not set'),
-    ('CONFIG_KSU_SUSFS=y', '# CONFIG_KSU_SUSFS is not set'),
-    ('CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y', '# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set'),
-    ('CONFIG_KSU_WITH_KPROBES=y', '# CONFIG_KSU_WITH_KPROBES is not set'),
-]:
-    text = text.replace(old, new)
-path.write_text(text)
-PY
+          from pathlib import Path
+          path = Path('arch/arm64/configs/redbull_defconfig')
+          text = path.read_text()
+          replacements = [
+              ('CONFIG_KSU=y', '# CONFIG_KSU is not set'),
+              ('CONFIG_KSU_SUSFS=y', '# CONFIG_KSU_SUSFS is not set'),
+              ('CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y', '# CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT is not set'),
+              ('CONFIG_KSU_WITH_KPROBES=y', '# CONFIG_KSU_WITH_KPROBES is not set'),
+          ]
+          for old, new in replacements:
+              text = text.replace(old, new)
+          path.write_text(text)
+          PY
           echo "Patched defconfig diff:"
           diff -u "$DEFCONFIG.bak" "$DEFCONFIG" || true
 
