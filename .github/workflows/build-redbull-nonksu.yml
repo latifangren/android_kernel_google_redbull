@@ -36,10 +36,9 @@ jobs:
           sed -i 's/^CONFIG_KSU_WITH_KPROBES=y$/# CONFIG_KSU_WITH_KPROBES is not set/' arch/arm64/configs/redbull_defconfig
           sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig
           sed -i '/obj-\$(CONFIG_KSU) += kernelsu\//d' drivers/Makefile
-          echo 'Patched defconfig:'
           diff -u arch/arm64/configs/redbull_defconfig.bak arch/arm64/configs/redbull_defconfig || true
 
-      - name: Build redbull kernel artifact
+      - name: Build redbull kernel image only
         shell: bash
         run: |
           export ARCH=arm64
@@ -51,13 +50,13 @@ jobs:
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           mkdir -p out
           make O=out redbull_defconfig
-          make -j"$(nproc)" O=out
+          make -j"$(nproc)" O=out Image Image.gz Image.lz4 modules_prepare
 
       - name: Collect artifacts
         shell: bash
         run: |
           mkdir -p artifacts
-          find out/arch/arm64/boot -maxdepth 2 -type f \( -name 'Image*' -o -name '*.dtb' -o -name '*.dtbo' \) -exec cp -v {} artifacts/ \;
+          find out/arch/arm64/boot -maxdepth 1 -type f \( -name 'Image' -o -name 'Image.gz' -o -name 'Image.lz4' \) -exec cp -v {} artifacts/ \;
           cp -v arch/arm64/configs/redbull_defconfig artifacts/redbull_defconfig.nonksu || true
           ls -la artifacts
 
