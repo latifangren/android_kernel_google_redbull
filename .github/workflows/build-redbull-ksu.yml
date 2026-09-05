@@ -1,0 +1,125 @@
+name: Build redbull kernel + boot.img (KSU enabled)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-redbull-ksu.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout kernel tree
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache clang flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git libelf-dev libssl-dev lld llvm make python3 rsync unzip zip zstd cpio
+
+      - name: Prepare config (enable KSU)
+        shell: bash
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          mkdir -p out
+          # generate defconfig
+          make O=out redbull_defconfig
+          # ensure KSU is enabled in the config
+          if ! grep -q '^CONFIG_KSU=' out/.config; then
+            echo "CONFIG_KSU=y" >> out/.config
+            echo "CONFIG_KSU_SUSFS=y" >> out/.config || true
+            echo "CONFIG_KSU_WITH_KPROBES=y" >> out/.config || true
+            # regenerate any new symbols
+            scripts/config --file out/.config --enable CONFIG_KSU || true
+            make O=out olddefconfig
+          else
+            echo "KSU already present in out/.config"
+          fi
+
+      - name: Build kernel and modules
+        shell: bash
+        env:
+          ARCH: arm64
+          SUBARCH: arm64
+          CC: clang
+          LLVM: 1
+          LLVM_IAS: 1
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+        run: |
+          mkdir -p out
+          make -j"$(nproc)" O=out Image Image.gz Image.lz4 modules modules_prepare
+          # collect modules into a staging directory
+          rm -rf modules_install
+          mkdir -p modules_install
+          make O=out INSTALL_MOD_PATH=$(pwd)/modules_install modules_install || true
+
+      - name: Create minimal ramdisk
+        shell: bash
+        run: |
+          rm -rf ramdisk
+          mkdir -p ramdisk
+          # minimal Android-style init.rc (very small); adjust for your device as needed
+          cat > ramdisk/init.rc <<'EOF'
+on init
+    write /dev/kmsg 1
+    # minimal init.rc; customize for target device
+EOF
+          chmod 755 ramdisk
+          # pack into cpio.gz
+          (cd ramdisk && find . | cpio -o -H newc) | gzip > ramdisk.img
+
+      - name: Attempt to build boot.img (mkbootimg)
+        shell: bash
+        run: |
+          set -e
+          KERNEL_IMG=out/arch/arm64/boot/Image.gz
+          if [ ! -f "$KERNEL_IMG" ]; then
+            echo "Kernel image not found: $KERNEL_IMG" >&2
+            exit 1
+          fi
+
+          if command -v mkbootimg >/dev/null 2>&1; then
+            echo "mkbootimg found on runner; creating boot.img"
+            mkbootimg --kernel "$KERNEL_IMG" --ramdisk ramdisk.img --cmdline "console=tty0" --output boot.img || true
+          else
+            echo "mkbootimg not found; attempting to download small mkbootimg wrapper"
+            # Try to fetch a portable mkbootimg script from AOSP (best-effort). If network blocks, skip.
+            if ! curl -fsSL https://raw.githubusercontent.com/anestisb/android-virt-tools/master/mkbootimg/mkbootimg >/tmp/mkbootimg; then
+              echo "could not download mkbootimg wrapper; skipping boot.img creation"
+              exit 0
+            fi
+            chmod +x /tmp/mkbootimg
+            /tmp/mkbootimg --kernel "$KERNEL_IMG" --ramdisk ramdisk.img --cmdline "console=tty0" --output boot.img || true
+          fi
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find out/arch/arm64/boot -maxdepth 1 -type f \( -name 'Image' -o -name 'Image.gz' -o -name 'Image.lz4' \) -exec cp -v {} artifacts/ \;
+          cp -v out/.config artifacts/redbull_defconfig.ksu || true
+          # include modules
+          if [ -d modules_install ]; then
+            tar -C modules_install -czvf artifacts/modules-ksu.tar.gz . || true
+          fi
+          if [ -f boot.img ]; then
+            cp -v boot.img artifacts/ || true
+          else
+            echo "No boot.img was created; artifacts include kernel images and modules instead."
+          fi
+          ls -la artifacts
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: redbull-ksu-kernel
+          path: artifacts/
