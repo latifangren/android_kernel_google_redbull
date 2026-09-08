@@ -3,8 +3,9 @@ name: Build redbull kernel + boot.img (KSU enabled)
 on:
   workflow_dispatch:
   push:
-    paths:
-      - '.github/workflows/build-redbull-ksu.yml'
+    branches:
+      - 'feature/*'
+      - '16.0'
 
 permissions:
   contents: read
@@ -97,6 +98,37 @@ jobs:
           make O=out \
             INSTALL_MOD_PATH="$(pwd)/modules_install" \
             modules_install || true
+
+      - name: Package AnyKernel3 flashable zip
+        shell: bash
+        run: |
+          mkdir -p artifacts
+
+          # Download AnyKernel3
+          git clone https://github.com/osm0sis/AnyKernel3 --depth=1 anykernel
+
+          # Configure anykernel.sh for redbull (Pixel 5 / Pixel 4a 5G / Pixel 5a)
+          sed -i 's|BLOCK=.*|BLOCK=/dev/block/bootdevice/by-name/boot;|' anykernel/anykernel.sh
+          sed -i 's|IS_SLOT_DEVICE=.*|IS_SLOT_DEVICE=1;|' anykernel/anykernel.sh
+          sed -i 's/device.name1=.*/device.name1=redfin/' anykernel/anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=bramble/' anykernel/anykernel.sh
+          sed -i 's/device.name3=.*/device.name3=barbet/' anykernel/anykernel.sh
+          sed -i 's/device.name4=.*/device.name4=/' anykernel/anykernel.sh
+          sed -i 's/device.name5=.*/device.name5=/' anykernel/anykernel.sh
+
+          # Remove example ramdisk modifications
+          sed -i '/backup_file/d; /replace_string/d; /insert_line/d; /append_file/d; /patch_fstab/d' anykernel/anykernel.sh
+
+          # Copy kernel image
+          cp -v out/arch/arm64/boot/Image.lz4 anykernel/
+
+          # Zip entire anykernel directory excluding .git, README.md, and *placeholder
+          cd anykernel
+          zip -r9 ../artifacts/AnyKernel3-redbull-server-ksu.zip . \
+            -x '*.git*' \
+            -x 'README.md' \
+            -x '*placeholder'
+          cd ..
 
       - name: Create minimal ramdisk
         shell: bash
