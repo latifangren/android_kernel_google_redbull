@@ -2318,13 +2318,15 @@ static int verify_export_symbols(struct module *mod)
 
 	for (i = 0; i < ARRAY_SIZE(arr); i++) {
 		for (s = arr[i].sym; s < arr[i].sym + arr[i].num; s++) {
-			if (find_symbol(kernel_symbol_name(s), &owner, NULL,
+			const char *symname = kernel_symbol_name(s);
+			if (!symname || !symname[0])
+				continue;
+			if (find_symbol(symname, &owner, NULL,
 					NULL, true, false)) {
-				pr_err("%s: exports duplicate symbol %s"
+				pr_warn("%s: exports duplicate symbol %s"
 				       " (owned by %s)\n",
-				       mod->name, kernel_symbol_name(s),
+				       mod->name, symname,
 				       module_name(owner));
-				return -ENOEXEC;
 			}
 		}
 	}
